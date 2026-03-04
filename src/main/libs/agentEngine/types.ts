@@ -20,6 +20,12 @@ export interface CoworkRuntimeEvents {
   error: (sessionId: string, error: string) => void;
 }
 
+export type CoworkImageAttachment = {
+  name: string;
+  mimeType: string;
+  base64Data: string;
+};
+
 export type CoworkStartOptions = {
   skipInitialUserMessage?: boolean;
   skillIds?: string[];
@@ -27,11 +33,13 @@ export type CoworkStartOptions = {
   autoApprove?: boolean;
   workspaceRoot?: string;
   confirmationMode?: 'modal' | 'text';
+  imageAttachments?: CoworkImageAttachment[];
 };
 
 export type CoworkContinueOptions = {
   systemPrompt?: string;
   skillIds?: string[];
+  imageAttachments?: CoworkImageAttachment[];
 };
 
 export interface CoworkRuntime {

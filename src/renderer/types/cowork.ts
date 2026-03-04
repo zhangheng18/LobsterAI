@@ -1,3 +1,10 @@
+// Cowork image attachment for vision-capable models
+export interface CoworkImageAttachment {
+  name: string;
+  mimeType: string;
+  base64Data: string;
+}
+
 // Cowork session status
 export type CoworkSessionStatus = 'idle' | 'running' | 'completed' | 'error';
 
@@ -181,6 +188,7 @@ export interface CoworkStartOptions {
   systemPrompt?: string;
   title?: string;
   activeSkillIds?: string[];
+  imageAttachments?: CoworkImageAttachment[];
 }
 
 // Continue session options
@@ -189,6 +197,7 @@ export interface CoworkContinueOptions {
   prompt: string;
   systemPrompt?: string;
   activeSkillIds?: string[];
+  imageAttachments?: CoworkImageAttachment[];
 }
 
 // IPC result types

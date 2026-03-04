@@ -8,9 +8,17 @@
   "beforePack": "./scripts/electron-builder-hooks.cjs",
   "afterPack": "./scripts/electron-builder-hooks.cjs",
   "files": [
-    "dist/**/*",
-    "dist-electron/**/*",
-    "sandbox/agent-runner/AGENT_SYSTEM_PROMPT.md"
+    "sandbox/agent-runner/AGENT_SYSTEM_PROMPT.md",
+    {
+      "from": "dist",
+      "to": "dist",
+      "filter": ["**/*"]
+    },
+    {
+      "from": "dist-electron",
+      "to": "dist-electron",
+      "filter": ["**/*"]
+    }
   ],
   "extraResources": [
     {
@@ -37,20 +45,6 @@
       "filter": [
         "**/*"
       ]
-    },
-    {
-      "from": "resources/openclaw-bootstrap",
-      "to": "openclaw-bootstrap",
-      "filter": [
-        "**/*"
-      ]
-    },
-    {
-      "from": "resources/node-runtime",
-      "to": "node-runtime",
-      "filter": [
-        "**/*"
-      ]
     }
   ],
   "mac": {
@@ -68,7 +62,16 @@
       "NSCalendarsUsageDescription": "LobsterAI 需要访问您的日历来帮助您查看和管理日程安排，例如查找事件、创建会议等。",
       "NSRemindersUsageDescription": "LobsterAI 需要访问您的提醒事项来帮助您管理待办事项。",
       "NSAppleEventsUsageDescription": "LobsterAI 需要使用 Apple Events 来控制 Calendar 应用执行自动化操作。"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "vendor/openclaw-runtime/current",
+        "to": "cfmind",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
   },
   "dmg": {
     "sign": false
@@ -93,15 +96,37 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "vendor/openclaw-runtime/current",
+        "to": "cfmind",
+        "filter": [
+          "**/*"
+        ]
       }
     ]
   },
   "linux": {
     "target": [
-      "AppImage"
+      "AppImage",
+      "deb"
     ],
     "icon": "build/icons/png",
-    "category": "Utility"
+    "category": "Utility",
+    "extraResources": [
+      {
+        "from": "vendor/openclaw-runtime/current",
+        "to": "cfmind",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "desktop": {
+      "Name": "LobsterAI",
+      "Comment": "AI-assisted coding and productivity tool",
+      "Terminal": "false"
+    }
   },
   "nsis": {
     "oneClick": false,

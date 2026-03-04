@@ -106,19 +106,36 @@ function providerRequiresApiKey(providerName: string): boolean {
 function resolveMatchedProvider(appConfig: AppConfig): { matched: MatchedProvider | null; error?: string } {
   const providers = appConfig.providers ?? {};
 
-  const resolveFallbackModel = (): string | undefined => {
-    for (const provider of Object.values(providers)) {
-      if (!provider?.enabled || !provider.models || provider.models.length === 0) {
+  const resolveFallbackModel = (): {
+    providerName: string;
+    providerConfig: ProviderConfig;
+    modelId: string;
+  } | null => {
+    for (const [providerName, providerConfig] of Object.entries(providers)) {
+      if (!providerConfig?.enabled || !providerConfig.models || providerConfig.models.length === 0) {
         continue;
       }
-      return provider.models[0].id;
+      const fallbackModel = providerConfig.models.find((model) => model.id?.trim());
+      if (!fallbackModel) {
+        continue;
+      }
+      return {
+        providerName,
+        providerConfig,
+        modelId: fallbackModel.id.trim(),
+      };
     }
-    return undefined;
+    return null;
   };
 
-  const modelId = appConfig.model?.defaultModel || resolveFallbackModel();
+  const configuredModelId = appConfig.model?.defaultModel?.trim();
+  let modelId = configuredModelId || '';
   if (!modelId) {
-    return { matched: null, error: 'No available model configured in enabled providers.' };
+    const fallback = resolveFallbackModel();
+    if (!fallback) {
+      return { matched: null, error: 'No available model configured in enabled providers.' };
+    }
+    modelId = fallback.modelId;
   }
 
   let providerEntry: [string, ProviderConfig] | undefined;
@@ -143,7 +160,13 @@ function resolveMatchedProvider(appConfig: AppConfig): { matched: MatchedProvide
   }
 
   if (!providerEntry) {
-    return { matched: null, error: `No enabled provider found for model: ${modelId}` };
+    const fallback = resolveFallbackModel();
+    if (fallback) {
+      modelId = fallback.modelId;
+      providerEntry = [fallback.providerName, fallback.providerConfig];
+    } else {
+      return { matched: null, error: `No enabled provider found for model: ${modelId}` };
+    }
   }
 
   const [providerName, providerConfig] = providerEntry;

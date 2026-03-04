@@ -188,7 +188,7 @@ export class CoworkEngineRouter extends EventEmitter implements CoworkRuntime {
       this.currentEngine = nextEngine;
       return nextEngine;
     }
-    this.currentEngine = 'yd_cowork';
-    return 'yd_cowork';
+    this.currentEngine = 'openclaw';
+    return 'openclaw';
   }
 }

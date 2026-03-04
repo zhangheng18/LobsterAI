@@ -36,6 +36,7 @@ class CoworkService {
   private openClawStatus: OpenClawEngineStatus | null = null;
   private openClawStatusListeners = new Set<(status: OpenClawEngineStatus) => void>();
   private openClawEngineListenerAttached = false;
+  private latestLoadSessionRequestId = 0;
 
   async init(): Promise<void> {
     if (this.initialized) return;
@@ -65,6 +66,18 @@ class CoworkService {
 
     // Message listener - also check if session exists (for IM-created sessions)
     const messageCleanup = cowork.onStreamMessage(async ({ sessionId, message }) => {
+      // Debug: log user messages to check if imageAttachments are preserved
+      if (message.type === 'user') {
+        const meta = message.metadata as Record<string, unknown> | undefined;
+        console.log('[CoworkService] onStreamMessage received user message', {
+          sessionId,
+          messageId: message.id,
+          hasMetadata: !!meta,
+          metadataKeys: meta ? Object.keys(meta) : [],
+          hasImageAttachments: !!(meta?.imageAttachments),
+          imageAttachmentsCount: Array.isArray(meta?.imageAttachments) ? (meta.imageAttachments as unknown[]).length : 0,
+        });
+      }
       // Check if session exists in current list
       const state = store.getState().cowork;
       const sessionExists = state.sessions.some(s => s.id === sessionId);
@@ -209,6 +222,7 @@ class CoworkService {
       prompt: options.prompt,
       systemPrompt: options.systemPrompt,
       activeSkillIds: options.activeSkillIds,
+      imageAttachments: options.imageAttachments,
     });
     if (!result.success) {
       store.dispatch(setStreaming(false));
@@ -347,9 +361,14 @@ class CoworkService {
   async loadSession(sessionId: string): Promise<CoworkSession | null> {
     const cowork = window.electron?.cowork;
     if (!cowork) return null;
+    const requestId = ++this.latestLoadSessionRequestId;
 
     const result = await cowork.getSession(sessionId);
     if (result.success && result.session) {
+      // Keep only the latest session load result to avoid stale async overwrites.
+      if (requestId !== this.latestLoadSessionRequestId) {
+        return result.session;
+      }
       store.dispatch(setCurrentSession(result.session));
       store.dispatch(setStreaming(result.session.status === 'running'));
       return result.session;

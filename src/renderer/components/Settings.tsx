@@ -5,7 +5,6 @@ import { themeService } from '../services/theme';
 import { i18nService, LanguageType } from '../services/i18n';
 import { decryptSecret, encryptWithPassword, decryptWithPassword, EncryptedPayload, PasswordEncryptedPayload } from '../services/encryption';
 import { coworkService } from '../services/cowork';
-import { imService } from '../services/im';
 import { APP_ID, EXPORT_FORMAT_TYPE, EXPORT_PASSWORD } from '../constants/app';
 import ErrorMessage from './ErrorMessage';
 import { XMarkIcon, Cog6ToothIcon, PlusCircleIcon, TrashIcon, PencilIcon, SignalIcon, CheckCircleIcon, XCircleIcon, CubeIcon, ChatBubbleLeftIcon, ShieldCheckIcon, EnvelopeIcon, CpuChipIcon, InformationCircleIcon } from '@heroicons/react/24/outline';
@@ -188,6 +187,7 @@ const normalizeApiFormat = (value: unknown): 'anthropic' | 'openai' => (
 );
 const ABOUT_CONTACT_EMAIL = 'lobsterai.project@rd.netease.com';
 const ABOUT_USER_MANUAL_URL = 'https://lobsterai.youdao.com/#/docs/lobsterai_user_manual';
+const ABOUT_SERVICE_TERMS_URL = 'https://c.youdao.com/dict/hardware/lobsterai/lobsterai_service.html';
 
 const copyTextFallback = (text: string): boolean => {
   const textarea = document.createElement('textarea');
@@ -391,6 +391,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice }) => {
   // About tab
   const [appVersion, setAppVersion] = useState('');
   const [emailCopied, setEmailCopied] = useState(false);
+  const [isExportingLogs, setIsExportingLogs] = useState(false);
 
   useEffect(() => {
     window.electron.appInfo.getVersion().then(setAppVersion);
@@ -414,10 +415,48 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice }) => {
     void window.electron.shell.openExternal(ABOUT_USER_MANUAL_URL);
   }, []);
 
-  const coworkConfig = useSelector((state: RootState) => state.cowork.config);
-  const imConfig = useSelector((state: RootState) => state.im.config);
+  const handleOpenServiceTerms = useCallback(() => {
+    void window.electron.shell.openExternal(ABOUT_SERVICE_TERMS_URL);
+  }, []);
 
-  const [coworkAgentEngine, setCoworkAgentEngine] = useState<CoworkAgentEngine>(coworkConfig.agentEngine || 'yd_cowork');
+  const handleExportLogs = useCallback(async () => {
+    if (isExportingLogs) {
+      return;
+    }
+
+    setError(null);
+    setNoticeMessage(null);
+    setIsExportingLogs(true);
+    try {
+      const result = await window.electron.log.exportZip();
+      if (!result.success) {
+        setError(result.error || i18nService.t('aboutExportLogsFailed'));
+        return;
+      }
+      if (result.canceled) {
+        return;
+      }
+
+      if (result.path) {
+        await window.electron.shell.showItemInFolder(result.path);
+      }
+
+      if ((result.missingEntries?.length ?? 0) > 0) {
+        const missingList = result.missingEntries?.join(', ') || '';
+        setNoticeMessage(`${i18nService.t('aboutExportLogsPartial')}: ${missingList}`);
+      } else {
+        setNoticeMessage(i18nService.t('aboutExportLogsSuccess'));
+      }
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : i18nService.t('aboutExportLogsFailed'));
+    } finally {
+      setIsExportingLogs(false);
+    }
+  }, [isExportingLogs]);
+
+  const coworkConfig = useSelector((state: RootState) => state.cowork.config);
+
+  const [coworkAgentEngine, setCoworkAgentEngine] = useState<CoworkAgentEngine>(coworkConfig.agentEngine || 'openclaw');
   const [coworkExecutionMode, setCoworkExecutionMode] = useState<CoworkExecutionMode>(coworkConfig.executionMode || 'local');
   const [coworkMemoryEnabled, setCoworkMemoryEnabled] = useState<boolean>(coworkConfig.memoryEnabled ?? true);
   const [coworkMemoryLlmJudgeEnabled, setCoworkMemoryLlmJudgeEnabled] = useState<boolean>(coworkConfig.memoryLlmJudgeEnabled ?? false);
@@ -433,10 +472,9 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice }) => {
   const [coworkSandboxProgress, setCoworkSandboxProgress] = useState<CoworkSandboxProgress | null>(null);
   const [coworkSandboxInstalling, setCoworkSandboxInstalling] = useState(false);
   const [openClawEngineStatus, setOpenClawEngineStatus] = useState<OpenClawEngineStatus | null>(null);
-  const [openClawInstalling, setOpenClawInstalling] = useState(false);
 
   useEffect(() => {
-    setCoworkAgentEngine(coworkConfig.agentEngine || 'yd_cowork');
+    setCoworkAgentEngine(coworkConfig.agentEngine || 'openclaw');
     setCoworkExecutionMode(coworkConfig.executionMode || 'local');
     setCoworkMemoryEnabled(coworkConfig.memoryEnabled ?? true);
     setCoworkMemoryLlmJudgeEnabled(coworkConfig.memoryLlmJudgeEnabled ?? false);
@@ -894,7 +932,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice }) => {
       case 'starting':
         return 'OpenClaw gateway is starting...';
       case 'error':
-        return 'OpenClaw install failed.';
+        return 'OpenClaw gateway failed to start.';
       case 'running':
       default:
         return 'OpenClaw is ready.';
@@ -913,19 +951,6 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice }) => {
       }
     } finally {
       setCoworkSandboxInstalling(false);
-    }
-  };
-
-  const handleInstallOpenClawEngine = async () => {
-    if (openClawInstalling) return;
-    setOpenClawInstalling(true);
-    try {
-      const status = await coworkService.installOpenClawEngine();
-      if (status) {
-        setOpenClawEngineStatus(status);
-      }
-    } finally {
-      setOpenClawInstalling(false);
     }
   };
 
@@ -1128,9 +1153,6 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice }) => {
           throw new Error(i18nService.t('coworkConfigSaveFailed'));
         }
       }
-
-      // Save IM config
-      await imService.updateConfig(imConfig);
 
       didSaveRef.current = true;
       onClose();
@@ -2042,29 +2064,6 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice }) => {
                     </div>
                   )}
                 </div>
-                <button
-                  type="button"
-                  onClick={handleInstallOpenClawEngine}
-                  disabled={
-                    openClawInstalling
-                    || openClawEngineStatus?.phase === 'installing'
-                    || openClawEngineStatus?.phase === 'starting'
-                    || openClawEngineStatus?.phase === 'running'
-                  }
-                  className="inline-flex items-center justify-center px-4 py-2 rounded-xl bg-claude-accent hover:bg-claude-accentHover text-white text-sm font-medium transition-colors disabled:opacity-50 active:scale-[0.98]"
-                >
-                  {(openClawInstalling
-                    || openClawEngineStatus?.phase === 'installing'
-                    || openClawEngineStatus?.phase === 'starting')
-                    ? i18nService.t('coworkOpenClawInstalling')
-                    : (openClawEngineStatus?.phase === 'running'
-                      ? i18nService.t('coworkOpenClawRunning')
-                      : (openClawEngineStatus?.phase === 'ready'
-                        ? i18nService.t('coworkOpenClawStart')
-                        : (openClawEngineStatus?.phase === 'error'
-                          ? i18nService.t('coworkOpenClawRetryInstall')
-                          : i18nService.t('coworkOpenClawInstall'))))}
-                </button>
               </div>
             )}
           </div>
@@ -2858,7 +2857,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice }) => {
 
       case 'about':
         return (
-          <div className="flex flex-col items-center pt-6 pb-4">
+          <div className="flex min-h-full flex-col items-center pt-6 pb-3">
             {/* Logo & App Name */}
             <img src="logo.png" alt="LobsterAI" className="w-16 h-16 mb-3" />
             <h3 className="text-lg font-semibold dark:text-claude-darkText text-claude-text">LobsterAI</h3>
@@ -2907,9 +2906,39 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice }) => {
             </div>
 
             {/* Footer */}
-            <p className="text-xs dark:text-claude-darkTextSecondary text-claude-textSecondary mt-6">
-              &copy; {new Date().getFullYear()} NetEase Youdao
-            </p>
+            <div className="mt-auto w-full pt-14 pb-2 flex flex-col items-center">
+              <div className="flex items-center justify-center text-sm dark:text-claude-darkTextSecondary text-claude-textSecondary">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenServiceTerms();
+                  }}
+                  className="bg-transparent border-none appearance-none px-1.5 py-0.5 -mx-1.5 -my-0.5 rounded-md cursor-pointer hover:text-claude-accent dark:hover:text-claude-accent transition-colors"
+                >
+                  {i18nService.t('aboutServiceTerms')}
+                </button>
+                <span className="mx-3 text-xs opacity-40">|</span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleExportLogs();
+                  }}
+                  disabled={isExportingLogs}
+                  className="bg-transparent border-none appearance-none px-1.5 py-0.5 -mx-1.5 -my-0.5 rounded-md cursor-pointer hover:text-claude-accent dark:hover:text-claude-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isExportingLogs ? i18nService.t('aboutExportingLogs') : i18nService.t('aboutExportLogs')}
+                </button>
+              </div>
+
+              <p className="mt-5 text-xs dark:text-claude-darkTextSecondary text-claude-textSecondary">
+                {language === 'zh' ? '网易有道 版权所有' : 'NetEase Youdao. All rights reserved.'}
+              </p>
+              <p className="mt-1 text-xs dark:text-claude-darkTextSecondary text-claude-textSecondary">
+                Copyright &copy; {new Date().getFullYear()} NetEase Youdao. All Rights Reserved.
+              </p>
+            </div>
           </div>
         );
 
@@ -2986,6 +3015,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice }) => {
             <div
               ref={contentRef}
               className="px-6 py-4 flex-1 overflow-y-auto"
+              style={{ scrollbarGutter: 'stable' }}
             >
               {renderTabContent()}
             </div>

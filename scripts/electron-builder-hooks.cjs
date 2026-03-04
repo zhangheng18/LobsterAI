@@ -1,17 +1,11 @@
 'use strict';
 
 const path = require('path');
-const { existsSync, readdirSync, statSync, mkdirSync, writeFileSync, readFileSync} = require('fs');
+const { existsSync, readdirSync, statSync, mkdirSync, readFileSync, rmSync, cpSync } = require('fs');
 const { spawnSync } = require('child_process');
+const asar = require('@electron/asar');
 const { ensurePortableGit } = require('./setup-mingit.js');
 const { ensurePortablePythonRuntime, checkRuntimeHealth } = require('./setup-python-runtime.js');
-
-const DEFAULT_OPENCLAW_MANIFEST = {
-  version: '2026.2.23',
-  packageName: 'openclaw',
-  downloadUrl: '',
-  sha256: '',
-};
 
 function isWindowsTarget(context) {
   return context?.electronPlatformName === 'win32';
@@ -21,129 +15,140 @@ function isMacTarget(context) {
   return context?.electronPlatformName === 'darwin';
 }
 
-function ensureOpenClawBootstrapResources() {
-  const resourcesDir = path.join(__dirname, '..', 'resources');
-  const bootstrapDir = path.join(resourcesDir, 'openclaw-bootstrap');
-  const runtimeDir = path.join(resourcesDir, 'node-runtime');
-  const runtimePlatforms = ['darwin', 'win32', 'linux'];
-
-  mkdirSync(bootstrapDir, { recursive: true });
-  mkdirSync(runtimeDir, { recursive: true });
-
-  const manifestPath = path.join(bootstrapDir, 'manifest.json');
-  if (!existsSync(manifestPath)) {
-    writeFileSync(`${manifestPath}`, `${JSON.stringify(DEFAULT_OPENCLAW_MANIFEST, null, 2)}\n`, 'utf8');
-  } else {
-    try {
-      const raw = readFileSync(manifestPath, 'utf8');
-      const parsed = JSON.parse(raw);
-      const merged = {
-        ...DEFAULT_OPENCLAW_MANIFEST,
-        ...(parsed && typeof parsed === 'object' ? parsed : {}),
-      };
-      if (!merged.version || typeof merged.version !== 'string') {
-        merged.version = DEFAULT_OPENCLAW_MANIFEST.version;
-      }
-      if (!merged.packageName || typeof merged.packageName !== 'string') {
-        merged.packageName = DEFAULT_OPENCLAW_MANIFEST.packageName;
-      }
-      writeFileSync(`${manifestPath}`, `${JSON.stringify(merged, null, 2)}\n`, 'utf8');
-    } catch (error) {
-      throw new Error(`[electron-builder-hooks] Invalid OpenClaw manifest at ${manifestPath}: ${error}`);
-    }
-  }
-
-  const runtimeReadmePath = path.join(runtimeDir, 'README.md');
-  if (!existsSync(runtimeReadmePath)) {
-    writeFileSync(
-      runtimeReadmePath,
-      [
-        '# Node Runtime Bundle',
-        '',
-        'Place minimal Node.js runtimes under each platform directory:',
-        '- darwin',
-        '- win32',
-        '- linux',
-        '',
-        'Expected executable names:',
-        '- darwin/linux: bin/node or node',
-        '- win32: node.exe or bin/node.exe',
-      ].join('\n'),
-      'utf8',
-    );
-  }
-
-  for (const platformName of runtimePlatforms) {
-    const platformDir = path.join(runtimeDir, platformName);
-    mkdirSync(platformDir, { recursive: true });
-
-    const markerPath = path.join(platformDir, '.keep');
-    if (!existsSync(markerPath)) {
-      writeFileSync(markerPath, '', 'utf8');
-    }
-  }
+function resolveTargetArch(context) {
+  if (context?.arch === 3) return 'arm64';
+  if (context?.arch === 0) return 'ia32';
+  if (context?.arch === 1) return 'x64';
+  if (process.arch === 'arm64') return 'arm64';
+  if (process.arch === 'ia32') return 'ia32';
+  return 'x64';
 }
 
-function collectRuntimeFiles(rootDir) {
-  const fs = require('fs');
-  const results = [];
-  const stack = [rootDir];
-  while (stack.length > 0) {
-    const current = stack.pop();
-    const entries = fs.readdirSync(current, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(fullPath);
-        continue;
-      }
-      results.push(fullPath);
-    }
-  }
-  return results;
-}
-
-function ensureBundledNodeRuntimeForTarget(context) {
+function resolveOpenClawRuntimeTargetId(context) {
   const platform = context?.electronPlatformName;
-  if (!platform) {
-    throw new Error('[electron-builder-hooks] Missing target platform for node-runtime validation.');
+  const arch = resolveTargetArch(context);
+
+  if (platform === 'darwin') {
+    return arch === 'x64' ? 'mac-x64' : 'mac-arm64';
+  }
+  if (platform === 'win32') {
+    return arch === 'arm64' ? 'win-arm64' : 'win-x64';
+  }
+  if (platform === 'linux') {
+    return arch === 'arm64' ? 'linux-arm64' : 'linux-x64';
   }
 
-  const runtimeRoot = path.join(__dirname, '..', 'resources', 'node-runtime', platform);
-  if (!existsSync(runtimeRoot)) {
-    throw new Error(`[electron-builder-hooks] Missing node-runtime directory for ${platform}: ${runtimeRoot}`);
+  return null;
+}
+
+function readRuntimeBuildInfo(runtimeRoot) {
+  const buildInfoPath = path.join(runtimeRoot, 'runtime-build-info.json');
+  if (!existsSync(buildInfoPath)) {
+    return null;
   }
 
-  const files = collectRuntimeFiles(runtimeRoot)
-    .map(filePath => path.relative(runtimeRoot, filePath).replace(/\\/g, '/'))
-    .filter(relativePath => {
-      const lower = relativePath.toLowerCase();
-      if (!lower) return false;
-      if (lower === '.keep') return false;
-      if (lower.endsWith('/.keep')) return false;
-      if (lower === 'readme.md') return false;
-      if (lower.endsWith('/readme.md')) return false;
-      if (lower === '.ds_store') return false;
-      if (lower.endsWith('/.ds_store')) return false;
-      return true;
-    });
+  try {
+    const parsed = JSON.parse(readFileSync(buildInfoPath, 'utf8'));
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
-  if (files.length === 0) {
+function getOpenClawRuntimeBuildHint(targetId) {
+  if (!targetId) {
+    return 'npm run openclaw:runtime:host';
+  }
+  return `npm run openclaw:runtime:${targetId}`;
+}
+
+function syncCurrentOpenClawRuntimeForTarget(context) {
+  const runtimeBase = path.join(__dirname, '..', 'vendor', 'openclaw-runtime');
+  const currentRoot = path.join(runtimeBase, 'current');
+  const targetId = resolveOpenClawRuntimeTargetId(context);
+
+  if (!targetId) {
+    return { runtimeRoot: currentRoot, targetId: null };
+  }
+
+  const targetRoot = path.join(runtimeBase, targetId);
+  if (!existsSync(targetRoot)) {
+    return { runtimeRoot: currentRoot, targetId };
+  }
+
+  const currentBuildInfo = readRuntimeBuildInfo(currentRoot);
+  if (currentBuildInfo?.target !== targetId) {
+    rmSync(currentRoot, { recursive: true, force: true });
+    cpSync(targetRoot, currentRoot, { recursive: true, force: true });
+    console.log(`[electron-builder-hooks] Synced OpenClaw runtime ${targetId} -> current`);
+  }
+
+  return { runtimeRoot: currentRoot, targetId };
+}
+
+function ensureBundledOpenClawRuntime(context) {
+  const { runtimeRoot, targetId } = syncCurrentOpenClawRuntimeForTarget(context);
+  const buildHint = getOpenClawRuntimeBuildHint(targetId);
+
+  const requiredExternalPaths = [
+    path.join(runtimeRoot, 'node_modules'),
+  ];
+  const missingExternal = requiredExternalPaths.filter((candidate) => !existsSync(candidate));
+  if (missingExternal.length > 0) {
     throw new Error(
-      `[electron-builder-hooks] node-runtime/${platform} only contains placeholders. ` +
-      'Bundle a minimal Node runtime before production packaging.',
+      '[electron-builder-hooks] Bundled OpenClaw runtime is incomplete. Missing: '
+      + missingExternal.join(', ')
+      + `. Run \`${buildHint}\` before packaging.`,
     );
   }
 
-  const hasNodeBinary = platform === 'win32'
-    ? files.some(file => /(?:^|\/)(?:bin\/)?node\.exe$/i.test(file))
-    : files.some(file => /(?:^|\/)(?:bin\/)?node$/i.test(file));
-  const hasNpmCli = files.some(file => /(?:^|\/)npm\/bin\/npm-cli\.js$/i.test(file));
+  const gatewayAsarPath = path.join(runtimeRoot, 'gateway.asar');
+  if (existsSync(gatewayAsarPath)) {
+    let entries;
+    try {
+      entries = new Set(asar.listPackage(gatewayAsarPath));
+    } catch (error) {
+      throw new Error(
+        '[electron-builder-hooks] Failed to read OpenClaw gateway.asar: '
+        + `${gatewayAsarPath}. ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
 
-  if (!hasNodeBinary || !hasNpmCli) {
+    const hasOpenClawEntry = entries.has('/openclaw.mjs');
+    const hasControlUiIndex = entries.has('/dist/control-ui/index.html');
+    const hasGatewayEntry = entries.has('/dist/entry.js') || entries.has('/dist/entry.mjs');
+
+    if (!hasOpenClawEntry || !hasControlUiIndex || !hasGatewayEntry) {
+      throw new Error(
+        '[electron-builder-hooks] OpenClaw gateway.asar is incomplete. '
+        + `openclaw.mjs=${hasOpenClawEntry}, control-ui=${hasControlUiIndex}, entry=${hasGatewayEntry}.`,
+      );
+    }
+
+    return;
+  }
+
+  const legacyRequiredPaths = [
+    path.join(runtimeRoot, 'openclaw.mjs'),
+    path.join(runtimeRoot, 'dist', 'control-ui', 'index.html'),
+  ];
+
+  const hasLegacyEntry = existsSync(path.join(runtimeRoot, 'dist', 'entry.js'))
+    || existsSync(path.join(runtimeRoot, 'dist', 'entry.mjs'));
+  if (!hasLegacyEntry) {
     throw new Error(
-      `[electron-builder-hooks] node-runtime/${platform} is incomplete. ` +
-      `hasNodeBinary=${hasNodeBinary}, hasNpmCli=${hasNpmCli}.`,
+      '[electron-builder-hooks] Missing OpenClaw runtime entry. '
+      + `Expected ${path.join(runtimeRoot, 'dist', 'entry.js')} or ${path.join(runtimeRoot, 'dist', 'entry.mjs')}, `
+      + `or ${path.join(runtimeRoot, 'gateway.asar')}.`,
+    );
+  }
+
+  const missingLegacy = legacyRequiredPaths.filter((candidate) => !existsSync(candidate));
+  if (missingLegacy.length > 0) {
+    throw new Error(
+      '[electron-builder-hooks] Bundled OpenClaw legacy runtime is incomplete. Missing: '
+      + missingLegacy.join(', ')
+      + `. Run \`${buildHint}\` before packaging.`,
     );
   }
 }
@@ -161,6 +166,40 @@ function findPackagedBash(appOutDir) {
   }
 
   return null;
+}
+
+function verifyPackagedPortableGitRuntimeDirs(appOutDir) {
+  const requiredDirs = [
+    path.join(appOutDir, 'resources', 'mingit', 'dev', 'shm'),
+    path.join(appOutDir, 'resources', 'mingit', 'dev', 'mqueue'),
+  ];
+  const createdDirs = [];
+
+  for (const dir of requiredDirs) {
+    if (existsSync(dir)) continue;
+    mkdirSync(dir, { recursive: true });
+    createdDirs.push(dir);
+  }
+
+  const missingDirs = requiredDirs.filter((dir) => !existsSync(dir));
+  if (missingDirs.length > 0) {
+    throw new Error(
+      'Windows package is missing required PortableGit runtime directories. '
+      + `Missing: ${missingDirs.join(', ')}`
+    );
+  }
+
+  if (createdDirs.length > 0) {
+    console.log(
+      '[electron-builder-hooks] Created missing PortableGit runtime directories: '
+      + createdDirs.join(', ')
+    );
+  }
+
+  console.log(
+    '[electron-builder-hooks] Verified PortableGit runtime directories: '
+    + requiredDirs.join(', ')
+  );
 }
 
 function findPackagedPythonExecutable(appOutDir) {
@@ -384,11 +423,14 @@ function installSkillDependencies() {
     }
 
     console.log(`[electron-builder-hooks]   ${entry}: installing dependencies...`);
+    // On Windows, use shell: true so cmd.exe resolves npm.cmd correctly
+    const isWin = process.platform === 'win32';
     const result = spawnSync('npm', ['install'], {
       cwd: skillPath,
       encoding: 'utf-8',
       stdio: 'pipe',
       timeout: 5 * 60 * 1000, // 5 minute timeout
+      shell: isWin,
     });
 
     if (result.status === 0) {
@@ -396,6 +438,9 @@ function installSkillDependencies() {
       installedCount++;
     } else {
       console.error(`[electron-builder-hooks]   ${entry}: ✗ failed`);
+      if (result.error) {
+        console.error(`[electron-builder-hooks]     Error: ${result.error.message}`);
+      }
       if (result.stderr) {
         console.error(`[electron-builder-hooks]     ${result.stderr.substring(0, 200)}`);
       }
@@ -407,8 +452,7 @@ function installSkillDependencies() {
 }
 
 async function beforePack(context) {
-  ensureOpenClawBootstrapResources();
-  ensureBundledNodeRuntimeForTarget(context);
+  ensureBundledOpenClawRuntime(context);
   // Install skill dependencies first (for all platforms)
   installSkillDependencies();
 
@@ -510,6 +554,7 @@ async function afterPack(context) {
     }
 
     console.log(`[electron-builder-hooks] Verified bundled PortableGit: ${bashPath}`);
+    verifyPackagedPortableGitRuntimeDirs(context.appOutDir);
 
     const pythonExe = findPackagedPythonExecutable(context.appOutDir);
     if (!pythonExe) {

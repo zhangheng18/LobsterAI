@@ -16,7 +16,8 @@ import ComposeIcon from '../icons/ComposeIcon';
 import WindowTitleBar from '../window/WindowTitleBar';
 import { QuickActionBar, PromptPanel } from '../quick-actions';
 import type { SettingsOpenOptions } from '../Settings';
-import type { CoworkSession, OpenClawEngineStatus } from '../../types/cowork';
+import type { CoworkSession, CoworkImageAttachment, OpenClawEngineStatus } from '../../types/cowork';
+import { ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
 
 export interface CoworkViewProps {
   onRequestAppSettings?: (options?: SettingsOpenOptions) => void;
@@ -81,7 +82,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
       case 'starting':
         return 'AI 引擎正在启动网关...';
       case 'error':
-        return 'AI 引擎初始化失败，请前往设置页重试安装。';
+        return 'AI 引擎初始化失败，请前往设置页检查运行时配置。';
       case 'running':
       default:
         return 'AI 引擎已就绪。';
@@ -143,11 +144,10 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
     };
   }, [dispatch]);
 
-  const handleStartSession = async (prompt: string, skillPrompt?: string) => {
+  const handleStartSession = async (prompt: string, skillPrompt?: string, imageAttachments?: CoworkImageAttachment[]) => {
     if (isOpenClawEngine && openClawStatus && !isOpenClawReadyForSession(openClawStatus)) {
       return;
     }
-
     // Prevent duplicate submissions
     if (isStartingRef.current) return;
     isStartingRef.current = true;
@@ -199,7 +199,12 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
             type: 'user',
             content: prompt,
             timestamp: now,
-            metadata: sessionSkillIds.length > 0 ? { skillIds: sessionSkillIds } : undefined,
+            metadata: (sessionSkillIds.length > 0 || (imageAttachments && imageAttachments.length > 0))
+              ? {
+                ...(sessionSkillIds.length > 0 ? { skillIds: sessionSkillIds } : {}),
+                ...(imageAttachments && imageAttachments.length > 0 ? { imageAttachments } : {}),
+              }
+              : undefined,
           },
         ],
       };
@@ -246,6 +251,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
         cwd: config.workingDirectory || undefined,
         systemPrompt: combinedSystemPrompt,
         activeSkillIds: sessionSkillIds,
+        imageAttachments,
       });
 
       // Stop immediately if user cancelled while startup request was in flight.
@@ -260,9 +266,16 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
     }
   };
 
-  const handleContinueSession = async (prompt: string, skillPrompt?: string) => {
+  const handleContinueSession = async (prompt: string, skillPrompt?: string, imageAttachments?: CoworkImageAttachment[]) => {
     if (!currentSession) return;
     if (isOpenClawEngine && openClawStatus && !isOpenClawReadyForSession(openClawStatus)) return;
+
+    console.log('[CoworkView] handleContinueSession called', {
+      hasImageAttachments: !!imageAttachments,
+      imageAttachmentsCount: imageAttachments?.length ?? 0,
+      imageAttachmentsNames: imageAttachments?.map(a => a.name),
+      imageAttachmentsBase64Lengths: imageAttachments?.map(a => a.base64Data.length),
+    });
 
     // Capture active skill IDs before clearing
     const sessionSkillIds = [...activeSkillIds];
@@ -287,6 +300,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
       prompt,
       systemPrompt: combinedSystemPrompt,
       activeSkillIds: sessionSkillIds.length > 0 ? sessionSkillIds : undefined,
+      imageAttachments,
     });
   };
 
@@ -348,6 +362,21 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
     };
   }, [dispatch]);
 
+  useEffect(() => {
+    if (!isOpenClawEngine) return;
+    if (!currentSession || currentSession.status !== 'running') return;
+
+    const runningSessionId = currentSession.id;
+    const handleWindowFocus = () => {
+      void coworkService.loadSession(runningSessionId);
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus);
+    };
+  }, [currentSession?.id, currentSession?.status, isOpenClawEngine]);
+
   if (!isInitialized) {
     return (
       <div className="flex-1 h-full flex flex-col dark:bg-claude-darkBg bg-claude-bg">
@@ -373,6 +402,37 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
   const isEngineReady = isOpenClawEngine
     ? isOpenClawReadyForSession(openClawStatus)
     : true;
+  const shouldShowGatewayStartupGate = Boolean(
+    isOpenClawEngine && openClawStatus?.phase === 'starting',
+  );
+
+  const homeHeader = (
+    <div className="draggable flex h-12 items-center justify-between px-4 border-b dark:border-claude-darkBorder border-claude-border shrink-0">
+      <div className="non-draggable h-8 flex items-center">
+        {isSidebarCollapsed && (
+          <div className={`flex items-center gap-1 mr-2 ${isMac ? 'pl-[68px]' : ''}`}>
+            <button
+              type="button"
+              onClick={onToggleSidebar}
+              className="h-8 w-8 inline-flex items-center justify-center rounded-lg dark:text-claude-darkTextSecondary text-claude-textSecondary hover:bg-claude-surfaceHover dark:hover:bg-claude-darkSurfaceHover transition-colors"
+            >
+              <SidebarToggleIcon className="h-4 w-4" isCollapsed={true} />
+            </button>
+            <button
+              type="button"
+              onClick={onNewChat}
+              className="h-8 w-8 inline-flex items-center justify-center rounded-lg dark:text-claude-darkTextSecondary text-claude-textSecondary hover:bg-claude-surfaceHover dark:hover:bg-claude-darkSurfaceHover transition-colors"
+            >
+              <ComposeIcon className="h-4 w-4" />
+            </button>
+            {updateBadge}
+          </div>
+        )}
+        <ModelSelector />
+      </div>
+      <WindowTitleBar inline />
+    </div>
+  );
 
   // When there's a current session, show the session detail view
   if (currentSession) {
@@ -392,35 +452,55 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
     );
   }
 
+  if (shouldShowGatewayStartupGate && openClawStatus) {
+    const progressPercent = typeof openClawStatus.progressPercent === 'number'
+      ? Math.max(0, Math.min(100, Math.round(openClawStatus.progressPercent)))
+      : null;
+
+    return (
+      <div className="flex-1 flex flex-col dark:bg-claude-darkBg bg-claude-bg h-full">
+        {homeHeader}
+        <div className="flex-1 flex items-center justify-center px-4">
+          <div className="w-full max-w-lg rounded-2xl border dark:border-claude-darkBorder border-claude-border dark:bg-claude-darkSurface bg-claude-surface p-6 shadow-card">
+            <div className="flex flex-col items-center text-center gap-3">
+              <div className="h-10 w-10 rounded-full bg-claude-accent/15 text-claude-accent flex items-center justify-center animate-pulse">
+                <ChatBubbleLeftRightIcon className="h-5 w-5" />
+              </div>
+              <div className="text-sm dark:text-claude-darkText text-claude-text">
+                {resolveEngineStatusText(openClawStatus)}
+              </div>
+              {progressPercent !== null && (
+                <div className="w-full space-y-1">
+                  <div className="h-1.5 w-full rounded-full bg-claude-accent/15 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-claude-accent transition-all"
+                      style={{ width: `${progressPercent}%` }}
+                    />
+                  </div>
+                  <div className="text-xs dark:text-claude-darkTextSecondary text-claude-textSecondary">
+                    {progressPercent}%
+                  </div>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => onRequestAppSettings?.({ initialTab: 'coworkAgentEngine' })}
+                className="mt-1 rounded-lg px-3 py-1.5 text-xs font-medium bg-claude-accent text-white hover:bg-claude-accentHover transition-colors"
+              >
+                {i18nService.t('coworkOpenClawGoToSettingsInstall')}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Home view - no current session
   return (
     <div className="flex-1 flex flex-col dark:bg-claude-darkBg bg-claude-bg h-full">
       {/* Header */}
-      <div className="draggable flex h-12 items-center justify-between px-4 border-b dark:border-claude-darkBorder border-claude-border shrink-0">
-        <div className="non-draggable h-8 flex items-center">
-          {isSidebarCollapsed && (
-            <div className={`flex items-center gap-1 mr-2 ${isMac ? 'pl-[68px]' : ''}`}>
-              <button
-                type="button"
-                onClick={onToggleSidebar}
-                className="h-8 w-8 inline-flex items-center justify-center rounded-lg dark:text-claude-darkTextSecondary text-claude-textSecondary hover:bg-claude-surfaceHover dark:hover:bg-claude-darkSurfaceHover transition-colors"
-              >
-                <SidebarToggleIcon className="h-4 w-4" isCollapsed={true} />
-              </button>
-              <button
-                type="button"
-                onClick={onNewChat}
-                className="h-8 w-8 inline-flex items-center justify-center rounded-lg dark:text-claude-darkTextSecondary text-claude-textSecondary hover:bg-claude-surfaceHover dark:hover:bg-claude-darkSurfaceHover transition-colors"
-              >
-                <ComposeIcon className="h-4 w-4" />
-              </button>
-              {updateBadge}
-            </div>
-          )}
-          <ModelSelector />
-        </div>
-        <WindowTitleBar inline />
-      </div>
+      {homeHeader}
 
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto min-h-0">

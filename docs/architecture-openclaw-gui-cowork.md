@@ -4,7 +4,7 @@
 
 - `Cowork` 是产品能力层（会话、消息、权限、状态流转）。
 - `OpenClaw` 是 `Cowork` 的一个可切换执行引擎（另一个是内置 `yd_cowork`）。
-- `GUI` 通过 Electron IPC 驱动 `Cowork`，并通过独立的 `openclaw:engine:*` 通道管理 OpenClaw 安装/状态。
+- `GUI` 通过 Electron IPC 驱动 `Cowork`，并通过独立的 `openclaw:engine:*` 通道管理 OpenClaw 运行时状态。
 
 换句话说：**GUI 不直接承载业务语义，Cowork 承载业务，OpenClaw 承载其中一种运行时执行能力。**
 
@@ -60,7 +60,7 @@ flowchart LR
   - `executionMode`: `auto` / `local` / `sandbox`
 - GUI 通过 `coworkService` 统一访问：
   - 会话类接口走 `window.electron.cowork.*`
-  - OpenClaw 引擎安装/状态走 `window.electron.openclaw.engine.*`
+  - OpenClaw 引擎运行状态走 `window.electron.openclaw.engine.*`
 
 ### 3.2 Cowork 层（Main 业务编排）
 
@@ -73,7 +73,7 @@ flowchart LR
 ### 3.3 OpenClaw 层（引擎与网关）
 
 - `OpenClawEngineManager`
-  - 负责安装、启动、状态机（`not_installed/installing/ready/starting/running/error`）。
+  - 负责内置 runtime 校验、启动、状态机（`not_installed/installing/ready/starting/running/error`，其中 `installing` 仅兼容保留）。
   - 向渲染层广播 `openclaw:engine:onProgress`。
 - `OpenClawConfigSync`
   - 把当前模型配置与 `executionMode` 同步成 OpenClaw 需要的配置文件。
@@ -122,9 +122,9 @@ sequenceDiagram
 - 统一抽象：GUI 永远消费 Cowork 标准事件，不感知底层是 OpenClaw 还是 `yd_cowork`。
 - 双通道职责清晰：
   - `cowork:*` 负责任务会话业务
-  - `openclaw:engine:*` 负责 OpenClaw 生命周期管理
+  - `openclaw:engine:*` 负责 OpenClaw runtime 生命周期管理
 - 配置联动：切换引擎或执行模式时，主进程会同步 OpenClaw 配置并按需重启网关。
-- 降级与错误显式化：OpenClaw 未就绪时返回 `ENGINE_NOT_READY`，前端据此提示用户安装/启动。
+- 降级与错误显式化：OpenClaw 未就绪时返回 `ENGINE_NOT_READY`，前端据此提示用户检查内置 runtime 与网关状态。
 
 ## 6. 你可以把它理解为
 

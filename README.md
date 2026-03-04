@@ -99,8 +99,34 @@ npm run dist:mac:universal
 # Windows (.exe NSIS installer)
 npm run dist:win
 
-# Linux (.AppImage)
+# Linux (.AppImage & .deb)
 npm run dist:linux
+```
+
+Desktop packaging (macOS / Windows / Linux) bundles a prebuilt OpenClaw runtime under `Resources/cfmind`.
+`npm run dist:mac`, `npm run dist:win`, and `npm run dist:linux` will run platform-specific OpenClaw runtime build steps before packaging.
+By default, OpenClaw source path resolves to `../openclaw` (relative to this repo). Override with an environment variable when needed:
+
+```bash
+OPENCLAW_SRC=/path/to/openclaw npm run dist:win
+```
+
+You can also build OpenClaw runtime manually:
+
+```bash
+# Build runtime for current host platform (auto-detect mac/win/linux + arch)
+npm run openclaw:runtime:host
+
+# Build explicit targets
+npm run openclaw:runtime:mac-arm64
+npm run openclaw:runtime:win-x64
+npm run openclaw:runtime:linux-x64
+```
+
+To run dev with OpenClaw runtime prepared automatically:
+
+```bash
+npm run electron:dev:openclaw
 ```
 
 Windows builds bundle a portable Python runtime under `resources/python-win` (included as installer resource `python-win`), so end users do not need to install Python manually.
@@ -260,6 +286,7 @@ LobsterAI can bridge the Agent to multiple IM platforms. Send a message from you
 | Telegram | grammY | Bot API integration |
 | Discord | discord.js | Discord bot integration |
 | NetEase IM | node-nim V2 SDK | NetEase IM P2P messaging |
+| NetEase Bee | node-nim V2 SDK | NetEase Bee Personal Digital Assistant |
 
 Configure the corresponding platform Token/Secret in the Settings panel to enable. Once set up, you can send instructions directly to the Agent from your phone IM (e.g., "analyze this dataset", "make a weekly summary PPT"), and the Agent will execute on the desktop and return results.
 

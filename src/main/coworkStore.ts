@@ -298,7 +298,7 @@ export type CoworkMessageType = 'user' | 'assistant' | 'tool_use' | 'tool_result
 export type CoworkExecutionMode = 'auto' | 'local' | 'sandbox';
 export type CoworkAgentEngine = 'openclaw' | 'yd_cowork';
 
-const COWORK_AGENT_ENGINE = 'yd_cowork';
+const COWORK_AGENT_ENGINE = 'openclaw';
 
 function normalizeCoworkAgentEngineValue(value?: string | null): CoworkAgentEngine {
   if (value === COWORK_AGENT_ENGINE || value === 'openclaw') {
