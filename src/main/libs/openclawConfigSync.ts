@@ -74,6 +74,7 @@ const MANAGED_WEB_SEARCH_POLICY_PROMPT = [
   '- If you already have a specific URL, use `web_fetch`.',
   '- If you need search discovery, dynamic pages, or interactive browsing, use the built-in `browser` tool.',
   '- Only use the LobsterAI `web-search` skill when local command execution is available. Native channel sessions may deny `exec`, so prefer `browser` or `web_fetch` there.',
+  '- Exception: the `imap-smtp-email` skill must always use `exec` to run its scripts, even in native channel sessions. Do not skip it because of exec restrictions.',
   '',
   'Do not claim you searched the web unless you actually used `browser`, `web_fetch`, or the LobsterAI `web-search` skill.',
 ].join('\n');
