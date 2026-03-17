@@ -978,8 +978,14 @@ function readRequestBody(req: http.IncomingMessage): Promise<string> {
         if (utf8Decoded && gbDecoded) {
           const utf8Score = scoreDecodedJsonText(utf8Decoded);
           const gbScore = scoreDecodedJsonText(gbDecoded);
-          if (gbScore > utf8Score) {
-            console.warn(`[CoworkProxy] Decoded request body using gb18030 (score ${gbScore} > utf8 ${utf8Score})`);
+          // Require GB18030 to score significantly higher than UTF-8 to avoid
+          // false positives on short CJK strings (e.g. "你好" scores UTF-8=10
+          // vs GB18030=11 due to one extra non-ASCII char from misaligned
+          // multi-byte boundaries).  UTF-8 is the overwhelmingly expected
+          // encoding, so give it a comfortable margin.
+          const GB18030_SCORE_MARGIN = 5;
+          if (gbScore > utf8Score + GB18030_SCORE_MARGIN) {
+            console.warn(`[CoworkProxy] Decoded request body using gb18030 (score ${gbScore} > utf8 ${utf8Score} + ${GB18030_SCORE_MARGIN})`);
             return gbDecoded;
           }
           return utf8Decoded;

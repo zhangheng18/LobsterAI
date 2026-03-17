@@ -252,6 +252,26 @@ const normalizeMoonshotBaseUrl = (rawBaseUrl: string): string => {
   return normalizeBaseUrlPath(trimmed, '/v1');
 };
 
+/**
+ * Strip well-known API endpoint suffixes from a base URL so that the
+ * OpenClaw gateway can append its own path without duplication.
+ *
+ * e.g. "https://gw.example.com/v1/chat/completions" → "https://gw.example.com/v1"
+ *      "https://gw.example.com/v1/messages"          → "https://gw.example.com/v1"
+ *      "https://gw.example.com/v1"                   → "https://gw.example.com/v1"  (unchanged)
+ */
+const stripEndpointSuffix = (rawBaseUrl: string): string => {
+  let normalized = rawBaseUrl.trim().replace(/\/+$/, '');
+  const endpointSuffixes = ['/chat/completions', '/messages', '/completions', '/responses'];
+  for (const suffix of endpointSuffixes) {
+    if (normalized.endsWith(suffix)) {
+      normalized = normalized.slice(0, -suffix.length).replace(/\/+$/, '');
+      break;
+    }
+  }
+  return normalized;
+};
+
 const normalizeKimiCodingBaseUrl = (rawBaseUrl: string): string => {
   const trimmed = rawBaseUrl.trim();
   if (!trimmed) {
@@ -346,7 +366,7 @@ const buildProviderSelection = (options: {
     sessionModelId: options.modelId,
     primaryModel: `lobster/${options.modelId}`,
     providerConfig: {
-      baseUrl: options.baseURL,
+      baseUrl: stripEndpointSuffix(options.baseURL),
       api: providerApi,
       apiKey: options.apiKey,
       auth: 'api-key',

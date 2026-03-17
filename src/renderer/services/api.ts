@@ -403,6 +403,7 @@ class ApiService {
     // - openai: OpenAI 兼容协议 (OpenAI provider uses /v1/responses)
     const normalizedApiFormat = this.normalizeApiFormat(effectiveConfig.apiFormat);
     const useOpenAIFormat = normalizedApiFormat === 'openai';
+    console.log(`[api-chat] provider=${provider}, model=${selectedModel.id}, apiFormat=${normalizedApiFormat}, useOpenAI=${useOpenAIFormat}, baseUrl=${effectiveConfig.baseUrl}`);
 
     if (!useOpenAIFormat) {
       return this.chatWithAnthropic(userMessage, onProgress, history, selectedModel.id, effectiveConfig, supportsImages);
@@ -533,6 +534,7 @@ class ApiService {
         this.cleanupFunctions = [removeDataListener, removeDoneListener, removeErrorListener, removeAbortListener];
 
         // 发起流式请求
+        console.log(`[api-chat] Anthropic request: baseUrl=${config.baseUrl}, finalUrl=${config.baseUrl}/v1/messages, model=${modelId}, apiFormat=${config.apiFormat}`);
         window.electron.api.stream({
           url: `${config.baseUrl}/v1/messages`,
           method: 'POST',
@@ -741,6 +743,7 @@ class ApiService {
         const requestUrl = useResponsesApi
           ? this.buildOpenAIResponsesUrl(config.baseUrl)
           : this.buildOpenAICompatibleChatCompletionsUrl(config.baseUrl, provider);
+        console.log(`[api-chat] OpenAI-compat request: provider=${provider}, baseUrl=${config.baseUrl}, finalUrl=${requestUrl}, model=${modelId}, apiFormat=${config.apiFormat}`);
         const requestBody: Record<string, unknown> = useResponsesApi
           ? {
               model: modelId,

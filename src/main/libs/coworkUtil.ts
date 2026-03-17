@@ -1597,6 +1597,7 @@ export async function generateSessionTitle(userIntent: string | null): Promise<s
   try {
     const url = buildAnthropicMessagesUrl(config.baseURL);
     const prompt = `Generate a short title from this input, keep the same language, return plain text only (no markdown), and keep it within ${SESSION_TITLE_MAX_CHARS} characters: ${normalizedInput}`;
+    console.log(`[cowork-title] Generating title: apiType=${config.apiType}, baseURL=${config.baseURL}, requestUrl=${url}, model=${config.model}`);
 
     const response = await fetch(url, {
       method: 'POST',
@@ -1625,7 +1626,9 @@ export async function generateSessionTitle(userIntent: string | null): Promise<s
     }
 
     const payload = await response.json();
+    console.log(`[cowork-title] Title response payload:`, JSON.stringify(payload).slice(0, 500));
     const llmTitle = extractTextFromAnthropicResponse(payload);
+    console.log(`[cowork-title] Extracted title text: "${llmTitle}"`);
     return normalizeTitleToPlainText(llmTitle, fallbackTitle);
   } catch (error) {
     console.error('Failed to generate session title:', error);
