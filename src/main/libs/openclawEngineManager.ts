@@ -388,7 +388,10 @@ export class OpenClawEngineManager extends EventEmitter {
       LOBSTERAI_OPENCLAW_ENTRY: openclawEntry.replace(/\\/g, '/'),
     };
     if (cliShimDir) {
-      env.PATH = [cliShimDir, env.PATH].filter(Boolean).join(path.delimiter);
+      // Plain object is case-sensitive: the spread key from process.env on Windows is "Path",
+      // not "PATH". We must read the actual key to avoid creating a PATH with only cliShimDir.
+      const currentPath = env.PATH || env.Path || '';
+      env.PATH = [cliShimDir, currentPath].filter(Boolean).join(path.delimiter);
     }
 
     if (isSystemProxyEnabled()) {
