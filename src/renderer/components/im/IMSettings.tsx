@@ -3056,6 +3056,15 @@ const IMSettings: React.FC = () => {
         {/* Weixin (微信) Settings */}
         {activePlatform === 'weixin' && (
           <div className="space-y-3">
+            {/* Platform Guide */}
+            <PlatformGuide
+              steps={[
+                i18nService.t('imWeixinGuideStep2'),
+                i18nService.t('imWeixinGuideStep3'),
+              ]}
+              guideUrl={IM_GUIDE_URLS.weixin}
+            />
+
             {/* Scan QR code section */}
             <div className="rounded-lg border border-dashed dark:border-claude-darkBorder/60 border-claude-border/60 p-4 text-center space-y-3">
               {(weixinQrStatus === 'idle' || weixinQrStatus === 'error') && (
@@ -3112,16 +3121,6 @@ const IMSettings: React.FC = () => {
                 </div>
               )}
             </div>
-
-            {/* Platform Guide */}
-            <PlatformGuide
-              steps={[
-                i18nService.t('imWeixinGuideStep1'),
-                i18nService.t('imWeixinGuideStep2'),
-                i18nService.t('imWeixinGuideStep3'),
-              ]}
-              guideUrl={IM_GUIDE_URLS.weixin}
-            />
 
             {/* Connectivity test */}
             <div className="pt-1">
