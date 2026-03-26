@@ -5,6 +5,7 @@ import fs from 'fs';
 import os from 'os';
 import { SqliteStore } from './sqliteStore';
 import { CoworkStore } from './coworkStore';
+import { AgentManager } from './agentManager';
 import { CoworkRunner } from './libs/coworkRunner';
 import {
   ClaudeRuntimeAdapter,
@@ -734,6 +735,14 @@ const getCoworkStore = () => {
   return coworkStore;
 };
 
+let agentManager: AgentManager | null = null;
+const getAgentManager = () => {
+  if (!agentManager) {
+    agentManager = new AgentManager(getCoworkStore());
+  }
+  return agentManager;
+};
+
 const resolveCoworkAgentEngine = (): CoworkAgentEngine => {
   const configured = getCoworkStore().getConfig().agentEngine;
   return configured === 'openclaw' ? 'openclaw' : 'yd_cowork';
@@ -801,6 +810,13 @@ const getOpenClawConfigSync = (): OpenClawConfigSync => {
           return null;
         }
       },
+      getIMSettings: () => {
+        try {
+          return getIMGatewayManager().getConfig().settings;
+        } catch {
+          return null;
+        }
+      },
       getDiscordOpenClawConfig: () => {
         try {
           return getIMGatewayManager()?.getConfig()?.discord ?? null;
@@ -818,6 +834,7 @@ const getOpenClawConfigSync = (): OpenClawConfigSync => {
           tools: mcpServerManager.toolManifest,
         };
       },
+      getAgents: () => getCoworkStore().listAgents(),
     });
   }
   return openClawConfigSync;
@@ -2346,6 +2363,7 @@ if (!gotTheLock) {
     title?: string;
     activeSkillIds?: string[];
     imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
+    agentId?: string;
   }) => {
     try {
       const activeEngine = resolveCoworkAgentEngine();
@@ -2381,7 +2399,8 @@ if (!gotTheLock) {
         taskWorkingDirectory,
         systemPrompt,
         config.executionMode || 'local',
-        options.activeSkillIds || []
+        options.activeSkillIds || [],
+        options.agentId || 'main'
       );
 
       // Update session status to 'running' before starting async task
@@ -2417,6 +2436,7 @@ if (!gotTheLock) {
         workspaceRoot: selectedWorkspaceRoot,
         confirmationMode: 'modal',
         imageAttachments: options.imageAttachments,
+        agentId: options.agentId,
       }).catch(error => {
         console.error('Cowork session error:', error);
         // The engine router already emits an 'error' event (handled at line ~990)
@@ -2616,15 +2636,86 @@ if (!gotTheLock) {
     }
   });
 
-  ipcMain.handle('cowork:session:list', async () => {
+  ipcMain.handle('cowork:session:list', async (_event, agentId?: string) => {
     try {
-      const sessions = getCoworkStore().listSessions();
+      const sessions = getCoworkStore().listSessions(agentId);
       return { success: true, sessions };
     } catch (error) {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to list sessions',
       };
+    }
+  });
+
+  // ========== Agent IPC Handlers ==========
+
+  ipcMain.handle('agents:list', async () => {
+    try {
+      const agents = getAgentManager().listAgents();
+      return { success: true, agents };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to list agents' };
+    }
+  });
+
+  ipcMain.handle('agents:get', async (_event, id: string) => {
+    try {
+      const agent = getAgentManager().getAgent(id);
+      return { success: true, agent };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to get agent' };
+    }
+  });
+
+  ipcMain.handle('agents:create', async (_event, request: import('./coworkStore').CreateAgentRequest) => {
+    try {
+      const agent = getAgentManager().createAgent(request);
+      // Sync config so workspace files (SOUL.md, IDENTITY.md) are written
+      // before OpenClaw scaffolds default templates for the new agent.
+      syncOpenClawConfig({ reason: 'agent-created' }).catch(() => {});
+      return { success: true, agent };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to create agent' };
+    }
+  });
+
+  ipcMain.handle('agents:update', async (_event, id: string, updates: import('./coworkStore').UpdateAgentRequest) => {
+    try {
+      const agent = getAgentManager().updateAgent(id, updates);
+      syncOpenClawConfig({ reason: 'agent-updated' }).catch(() => {});
+      return { success: true, agent };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to update agent' };
+    }
+  });
+
+  ipcMain.handle('agents:delete', async (_event, id: string) => {
+    try {
+      const result = getAgentManager().deleteAgent(id);
+      syncOpenClawConfig({ reason: 'agent-deleted' }).catch(() => {});
+      return { success: true, deleted: result };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to delete agent' };
+    }
+  });
+
+  ipcMain.handle('agents:presets', async () => {
+    try {
+      const presets = getAgentManager().getPresetAgents();
+      return { success: true, presets };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to get presets' };
+    }
+  });
+
+  ipcMain.handle('agents:addPreset', async (_event, presetId: string) => {
+    try {
+      const agent = getAgentManager().addPresetAgent(presetId);
+      syncOpenClawConfig({ reason: 'agent-preset-added' }).catch(() => {});
+      return { success: true, agent };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to add preset agent' };
     }
   });
 

@@ -133,9 +133,39 @@ contextBridge.exposeInMainWorld('electron', {
       },
     },
   },
+  agents: {
+    list: async () => {
+      const result = await ipcRenderer.invoke('agents:list');
+      return result?.success ? result.agents : [];
+    },
+    get: async (id: string) => {
+      const result = await ipcRenderer.invoke('agents:get', id);
+      return result?.success ? result.agent : null;
+    },
+    create: async (request: { id?: string; name: string; description?: string; systemPrompt?: string; identity?: string; model?: string; icon?: string; skillIds?: string[]; source?: string; presetId?: string }) => {
+      const result = await ipcRenderer.invoke('agents:create', request);
+      return result?.success ? result.agent : null;
+    },
+    update: async (id: string, updates: { name?: string; description?: string; systemPrompt?: string; identity?: string; model?: string; icon?: string; skillIds?: string[]; enabled?: boolean }) => {
+      const result = await ipcRenderer.invoke('agents:update', id, updates);
+      return result?.success ? result.agent : null;
+    },
+    delete: async (id: string) => {
+      const result = await ipcRenderer.invoke('agents:delete', id);
+      return result?.success ? result.deleted : false;
+    },
+    presets: async () => {
+      const result = await ipcRenderer.invoke('agents:presets');
+      return result?.success ? result.presets : [];
+    },
+    addPreset: async (presetId: string) => {
+      const result = await ipcRenderer.invoke('agents:addPreset', presetId);
+      return result?.success ? result.agent : null;
+    },
+  },
   cowork: {
     // Session management
-    startSession: (options: { prompt: string; cwd?: string; systemPrompt?: string; activeSkillIds?: string[]; imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }> }) =>
+    startSession: (options: { prompt: string; cwd?: string; systemPrompt?: string; activeSkillIds?: string[]; agentId?: string; imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }> }) =>
       ipcRenderer.invoke('cowork:session:start', options),
     continueSession: (options: { sessionId: string; prompt: string; systemPrompt?: string; activeSkillIds?: string[]; imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }> }) =>
       ipcRenderer.invoke('cowork:session:continue', options),
@@ -153,8 +183,8 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('cowork:session:get', sessionId),
     remoteManaged: (sessionId: string) =>
       ipcRenderer.invoke('cowork:session:remoteManaged', sessionId),
-    listSessions: () =>
-      ipcRenderer.invoke('cowork:session:list'),
+    listSessions: (agentId?: string) =>
+      ipcRenderer.invoke('cowork:session:list', agentId),
     exportResultImage: (options: { rect: { x: number; y: number; width: number; height: number }; defaultFileName?: string }) =>
       ipcRenderer.invoke('cowork:session:exportResultImage', options),
     captureImageChunk: (options: { rect: { x: number; y: number; width: number; height: number } }) =>

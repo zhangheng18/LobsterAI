@@ -53,6 +53,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
   const skills = useSelector((state: RootState) => state.skill.skills);
   const quickActions = useSelector((state: RootState) => state.quickAction.actions);
   const selectedActionId = useSelector((state: RootState) => state.quickAction.selectedActionId);
+  const currentAgentId = useSelector((state: RootState) => state.agent.currentAgentId);
 
   const buildApiConfigNotice = (error?: string) => {
     const baseNotice = i18nService.t('coworkModelSettingsRequired');
@@ -204,6 +205,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
         systemPrompt: '',
         executionMode: config.executionMode || 'local',
         activeSkillIds: sessionSkillIds,
+        agentId: currentAgentId,
         messages: [
           {
             id: `msg-${now}`,
@@ -246,6 +248,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
         cwd: config.workingDirectory || undefined,
         systemPrompt: combinedSystemPrompt,
         activeSkillIds: sessionSkillIds,
+        agentId: currentAgentId,
         imageAttachments,
       });
 
