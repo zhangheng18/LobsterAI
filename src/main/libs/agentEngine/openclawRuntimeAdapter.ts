@@ -1852,8 +1852,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     const sessionIdBySessionKey = sessionKey ? this.resolveSessionIdBySessionKey(sessionKey) ?? undefined : undefined;
     let sessionId = sessionIdByRunId ?? sessionIdBySessionKey;
 
-    // Re-create ActiveTurn for channel session follow-up turns
-    if (sessionId && !this.activeTurns.has(sessionId) && sessionKey) {
+    // Re-create ActiveTurn for channel session follow-up turns.
+    // Exclude stream=error events (e.g. seq gap notifications) — they are diagnostic alerts,
+    // not new run events, and must not create a ghost ActiveTurn that blocks the next user turn.
+    if (sessionId && !this.activeTurns.has(sessionId) && sessionKey && stream !== 'error') {
       console.log('[Debug:handleAgentEvent] re-creating ActiveTurn for follow-up turn, sessionId:', sessionId);
       this.ensureActiveTurn(sessionId, sessionKey, runId);
     }
